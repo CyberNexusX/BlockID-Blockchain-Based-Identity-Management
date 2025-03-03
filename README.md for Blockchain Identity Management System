@@ -1,0 +1,162 @@
+# Blockchain-Based Identity Management System
+
+A decentralized identity verification system using blockchain technology to enhance security in financial transactions.
+
+## Technology Stack
+
+- **Ethereum** - Blockchain platform for smart contracts
+- **Solidity** - Smart contract programming language
+- **IPFS** - Decentralized storage for identity documents
+- **Node.js** - Backend API and service integration
+
+## Overview
+
+This project implements a decentralized identity management system that allows users to:
+
+1. Register their identity documents securely on IPFS
+2. Link document hashes to their Ethereum address
+3. Get their identity verified by authorized verifiers
+4. Use their verified identity for secure financial transactions
+
+The system uses blockchain to ensure immutability and transparency while keeping sensitive documents securely encrypted in IPFS.
+
+## Features
+
+- **Decentralized Storage**: All documents are stored on IPFS, not on centralized servers
+- **Encrypted Documents**: All identity documents are encrypted with the user's public key
+- **Verifiable Identities**: Authorized verifiers can confirm the authenticity of identities
+- **Smart Contract Control**: Ethereum smart contracts manage the identity lifecycle
+- **Privacy-Preserving**: Only hash references stored on-chain, not the actual documents
+- **Financial Integration**: Verified identities can be used for secure financial transactions
+
+## Architecture
+
+![Architecture Diagram](https://via.placeholder.com/800x400?text=Identity+Management+Architecture)
+
+The system consists of three main components:
+
+1. **Smart Contracts**: Ethereum smart contracts that manage identity verification status
+2. **IPFS Storage**: Decentralized storage for encrypted identity documents
+3. **Node.js API**: Backend services for document processing and blockchain interaction
+
+## Smart Contract
+
+The `IdentityManagement` smart contract handles:
+
+- Identity registration
+- Verification status tracking
+- Authorized verifier management
+- Identity status queries
+
+## Installation
+
+### Prerequisites
+
+- Node.js (v14+)
+- npm (v6+)
+- Truffle (for smart contract deployment)
+- IPFS node (or Infura IPFS account)
+- Ethereum node (or Infura Ethereum account)
+
+### Setup
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/blockchain-identity-management.git
+cd blockchain-identity-management
+```
+
+2. Install dependencies:
+```bash
+npm install
+```
+
+3. Configure environment:
+```bash
+cp .env.example .env
+# Edit .env with your configuration settings
+```
+
+4. Deploy smart contracts:
+```bash
+truffle migrate --network <network_name>
+```
+
+5. Start the server:
+```bash
+npm start
+```
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/identity/register` | POST | Register a new identity |
+| `/api/identity/:address` | GET | Get identity information |
+| `/api/identity/verify` | POST | Verify an identity (verifiers only) |
+| `/api/identity/reject` | POST | Reject an identity (verifiers only) |
+
+## Usage Examples
+
+### Register an Identity
+
+```javascript
+const axios = require('axios');
+const FormData = require('form-data');
+const fs = require('fs');
+
+async function registerIdentity() {
+  const form = new FormData();
+  form.append('address', '0x123...'); // User's Ethereum address
+  form.append('publicKey', '-----BEGIN PUBLIC KEY-----...'); // User's public key
+  form.append('documents', fs.createReadStream('passport.jpg'));
+  form.append('documents', fs.createReadStream('license.pdf'));
+
+  const response = await axios.post('http://localhost:3000/api/identity/register', form, {
+    headers: {
+      ...form.getHeaders(),
+    }
+  });
+
+  console.log(response.data);
+}
+
+registerIdentity();
+```
+
+### Check Identity Status
+
+```javascript
+const axios = require('axios');
+
+async function checkIdentity(address) {
+  const response = await axios.get(`http://localhost:3000/api/identity/${address}`);
+  console.log(response.data);
+}
+
+checkIdentity('0x123...');
+```
+
+## Security Considerations
+
+- All documents are encrypted before being stored on IPFS
+- Only hash references are stored on the blockchain, not the actual documents
+- Private keys never leave the client
+- Multi-factor authentication is recommended for verifiers
+- Smart contract follows security best practices
+
+## Future Enhancements
+
+- Support for Decentralized Identifiers (DIDs)
+- Integration with other blockchain networks
+- Mobile application for identity verification
+- Enhanced privacy features using Zero-Knowledge Proofs
+- Integration with DeFi protocols for secure financial transactions
+
+## License
+
+MIT License
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
