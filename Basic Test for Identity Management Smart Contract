@@ -1,0 +1,140 @@
+const IdentityManagement = artifacts.require("IdentityManagement");
+const { expectRevert } = require('@openzeppelin/test-helpers');
+
+contract("IdentityManagement", accounts => {
+  const owner = accounts[0];
+  const verifier = accounts[1];
+  const user1 = accounts[2];
+  const user2 = accounts[3];
+  
+  let identityContract;
+  const testIpfsHash = "QmT78zSuBmuS4z925WZfrqQ1qHaJ56DQaTfyMUF7F8ff5o";
+  
+  before(async () => {
+    identityContract = await IdentityManagement.deployed();
+  });
+  
+  describe("Contract Initialization", () => {
+    it("should set the owner correctly", async () => {
+      const contractOwner = await identityContract.owner();
+      assert.equal(contractOwner, owner, "Owner is not set correctly");
+    });
+    
+    it("should set the owner as a verifier", async () => {
+      const isVerifier = await identityContract.verifiers(owner);
+      assert.equal(isVerifier, true, "Owner should be a verifier");
+    });
+  });
+  
+  describe("Verifier Management", () => {
+    it("should allow the owner to add a verifier", async () => {
+      await identityContract.addVerifier(verifier, { from: owner });
+      const isVerifier = await identityContract.verifiers(verifier);
+      assert.equal(isVerifier, true, "Verifier should be added");
+    });
+    
+    it("should prevent non-owners from adding verifiers", async () => {
+      await expectRevert(
+        identityContract.addVerifier(user1, { from: verifier }),
+        "Only the owner can call this function"
+      );
+    });
+    
+    it("should allow the owner to remove a verifier", async () => {
+      await identityContract.removeVerifier(verifier, { from: owner });
+      const isVerifier = await identityContract.verifiers(verifier);
+      assert.equal(isVerifier, false, "Verifier should be removed");
+    });
+    
+    it("should prevent removing the owner as a verifier", async () => {
+      await expectRevert(
+        identityContract.removeVerifier(owner, { from: owner }),
+        "Cannot remove owner as verifier"
+      );
+    });
+  });
+  
+  describe("Identity Registration", () => {
+    it("should register a new identity", async () => {
+      await identityContract.registerIdentity(testIpfsHash, { from: user1 });
+      
+      const status = await identityContract.getIdentityStatus(user1);
+      assert.equal(status, 1, "Status should be Pending");
+      
+      const ipfsHash = await identityContract.getIdentityHash(user1);
+      assert.equal(ipfsHash, testIpfsHash, "IPFS hash should be stored");
+    });
+    
+    it("should prevent registering an identity twice", async () => {
+      await expectRevert(
+        identityContract.registerIdentity(testIpfsHash, { from: user1 }),
+        "Identity already registered"
+      );
+    });
+    
+    it("should not allow empty IPFS hash", async () => {
+      await expectRevert(
+        identityContract.registerIdentity("", { from: user2 }),
+        "IPFS hash cannot be empty"
+      );
+    });
+  });
+  
+  describe("Identity Verification", () => {
+    before(async () => {
+      // Re-add verifier for testing
+      await identityContract.addVerifier(verifier, { from: owner });
+    });
+    
+    it("should verify an identity by an authorized verifier", async () => {
+      await identityContract.verifyIdentity(user1, { from: verifier });
+      
+      const status = await identityContract.getIdentityStatus(user1);
+      assert.equal(status, 2, "Status should be Verified");
+      
+      const isVerified = await identityContract.isVerified(user1);
+      assert.equal(isVerified, true, "Identity should be verified");
+    });
+    
+    it("should add the verifier to the list of verifiers for the identity", async () => {
+      const identityVerifiers = await identityContract.getIdentityVerifiers(user1);
+      assert.equal(identityVerifiers.length, 1, "Should have one verifier");
+      assert.equal(identityVerifiers[0], verifier, "Verifier should be recorded");
+    });
+    
+    it("should prevent non-verifiers from verifying identities", async () => {
+      await identityContract.registerIdentity(testIpfsHash, { from: user2 });
+      
+      await expectRevert(
+        identityContract.verifyIdentity(user2, { from: user1 }),
+        "Only authorized verifiers can call this function"
+      );
+    });
+    
+    it("should not verify identities that are not pending", async () => {
+      await expectRevert(
+        identityContract.verifyIdentity(user1, { from: verifier }),
+        "Identity not pending verification"
+      );
+    });
+  });
+  
+  describe("Identity Rejection", () => {
+    it("should reject an identity by an authorized verifier", async () => {
+      await identityContract.rejectIdentity(user2, { from: verifier });
+      
+      const status = await identityContract.getIdentityStatus(user2);
+      assert.equal(status, 3, "Status should be Rejected");
+      
+      const isVerified = await identityContract.isVerified(user2);
+      assert.equal(isVerified, false, "Identity should not be verified");
+    });
+    
+    it("should not reject identities that are not pending", async () => {
+      await expectRevert(
+        identityContract.rejectIdentity(user2, { from: verifier }),
+        "Identity not pending verification"
+      );
+    });
+  });
+});
