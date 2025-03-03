@@ -1,0 +1,220 @@
+// server.js
+const express = require('express');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const Web3 = require('web3');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const IPFSService = require('./services/ipfsService');
+
+// Import contract ABI and configuration
+const contractABI = require('./contracts/IdentityManagement.json').abi;
+const config = require('./config.json');
+
+// Initialize Express app
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(cors());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Set up file storage for identity documents
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir);
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    // Create a unique filename
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+const upload = multer({ storage });
+
+// Initialize Web3 and IPFS
+const web3 = new Web3(new Web3.providers.HttpProvider(config.ethereumNode));
+const ipfsService = new IPFSService(config.ipfs);
+
+// Load contract instance
+const contract = new web3.eth.Contract(contractABI, config.contractAddress);
+
+// Set up API routes
+/**
+ * @route POST /api/identity/register
+ * @desc Register a new identity
+ * @access Public
+ */
+app.post('/api/identity/register', upload.array('documents', 5), async (req, res) => {
+  try {
+    const { address, publicKey } = req.body;
+    
+    if (!address || !publicKey || !req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    // Generate key pair for the user if not provided
+    const userAddress = web3.utils.toChecksumAddress(address);
+    
+    // Upload all documents to IPFS
+    const documentHashes = [];
+    for (const file of req.files) {
+      const ipfsHash = await ipfsService.uploadDocument(file.path, publicKey);
+      documentHashes.push(ipfsHash);
+      
+      // Remove temporary file after upload
+      fs.unlinkSync(file.path);
+    }
+    
+    // Create metadata with document references
+    const metadata = {
+      documents: documentHashes,
+      timestamp: Date.now(),
+      version: '1.0'
+    };
+    
+    // Upload metadata to IPFS
+    const metadataBuffer = Buffer.from(JSON.stringify(metadata));
+    const metadataHash = await ipfsService.uploadDocument(metadataBuffer, publicKey);
+    
+    // Get the account that will send the transaction
+    const accounts = await web3.eth.getAccounts();
+    const senderAccount = accounts[0];
+    
+    // Register identity on the blockchain
+    const tx = await contract.methods.registerIdentity(metadataHash).send({
+      from: senderAccount,
+      gas: 3000000
+    });
+    
+    return res.status(201).json({
+      success: true,
+      address: userAddress,
+      ipfsHash: metadataHash,
+      transactionHash: tx.transactionHash
+    });
+  } catch (error) {
+    console.error('Error registering identity:', error);
+    return res.status(500).json({ error: 'Failed to register identity' });
+  }
+});
+
+/**
+ * @route GET /api/identity/:address
+ * @desc Get identity information
+ * @access Public
+ */
+app.get('/api/identity/:address', async (req, res) => {
+  try {
+    const address = web3.utils.toChecksumAddress(req.params.address);
+    
+    // Get identity status from blockchain
+    const status = await contract.methods.getIdentityStatus(address).call();
+    const ipfsHash = await contract.methods.getIdentityHash(address).call();
+    
+    // Map numeric status to string
+    const statusMap = ['NotRegistered', 'Pending', 'Verified', 'Rejected'];
+    
+    return res.status(200).json({
+      address,
+      ipfsHash,
+      status: statusMap[status],
+      isVerified: status === '2'
+    });
+  } catch (error) {
+    console.error('Error retrieving identity:', error);
+    return res.status(500).json({ error: 'Failed to retrieve identity' });
+  }
+});
+
+/**
+ * @route POST /api/identity/verify
+ * @desc Verify an identity
+ * @access Private (verifiers only)
+ */
+app.post('/api/identity/verify', async (req, res) => {
+  try {
+    const { address, verifierAddress, verifierPrivateKey } = req.body;
+    
+    if (!address || !verifierAddress) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    const userAddress = web3.utils.toChecksumAddress(address);
+    
+    // Check if the verifier is authorized
+    const isVerifier = await contract.methods.verifiers(verifierAddress).call();
+    if (!isVerifier) {
+      return res.status(403).json({ error: 'Not authorized as a verifier' });
+    }
+    
+    // Create and sign the transaction
+    const tx = await contract.methods.verifyIdentity(userAddress).send({
+      from: verifierAddress,
+      gas: 300000
+    });
+    
+    return res.status(200).json({
+      success: true,
+      address: userAddress,
+      verifier: verifierAddress,
+      transactionHash: tx.transactionHash
+    });
+  } catch (error) {
+    console.error('Error verifying identity:', error);
+    return res.status(500).json({ error: 'Failed to verify identity' });
+  }
+});
+
+/**
+ * @route POST /api/identity/reject
+ * @desc Reject an identity
+ * @access Private (verifiers only)
+ */
+app.post('/api/identity/reject', async (req, res) => {
+  try {
+    const { address, verifierAddress, verifierPrivateKey } = req.body;
+    
+    if (!address || !verifierAddress) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    const userAddress = web3.utils.toChecksumAddress(address);
+    
+    // Check if the verifier is authorized
+    const isVerifier = await contract.methods.verifiers(verifierAddress).call();
+    if (!isVerifier) {
+      return res.status(403).json({ error: 'Not authorized as a verifier' });
+    }
+    
+    // Create and sign the transaction
+    const tx = await contract.methods.rejectIdentity(userAddress).send({
+      from: verifierAddress,
+      gas: 300000
+    });
+    
+    return res.status(200).json({
+      success: true,
+      address: userAddress,
+      verifier: verifierAddress,
+      transactionHash: tx.transactionHash
+    });
+  } catch (error) {
+    console.error('Error rejecting identity:', error);
+    return res.status(500).json({ error: 'Failed to reject identity' });
+  }
+});
+
+// Start the server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
+module.exports = app;
