@@ -1,0 +1,11 @@
+{
+  "ethereumNode": "https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID",
+  "ipfs": {
+    "host": "ipfs.infura.io",
+    "port": 5001,
+    "protocol": "https"
+  },
+  "contractAddress": "0x123456789...YOUR_DEPLOYED_CONTRACT_ADDRESS",
+  "gas": 3000000,
+  "gasPrice": "20000000000"
+}
