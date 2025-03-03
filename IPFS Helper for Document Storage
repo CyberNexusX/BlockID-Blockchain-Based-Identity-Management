@@ -1,0 +1,133 @@
+// ipfsService.js
+const { create } = require('ipfs-http-client');
+const fs = require('fs');
+const crypto = require('crypto');
+
+/**
+ * IPFS Helper Service for Identity Document Storage
+ * This service handles the storage and retrieval of identity documents on IPFS
+ */
+class IPFSService {
+  constructor(ipfsConfig = { host: 'ipfs.infura.io', port: 5001, protocol: 'https' }) {
+    // Initialize IPFS client
+    this.ipfs = create(ipfsConfig);
+    this.encryption = new EncryptionService();
+  }
+
+  /**
+   * Upload and encrypt a document to IPFS
+   * @param {Buffer|string} document - The document to upload
+   * @param {string} userPublicKey - The user's public key for encryption
+   * @returns {Promise<string>} - The IPFS hash of the uploaded document
+   */
+  async uploadDocument(document, userPublicKey) {
+    try {
+      // Convert to buffer if it's a file path
+      if (typeof document === 'string' && fs.existsSync(document)) {
+        document = fs.readFileSync(document);
+      }
+
+      // Encrypt the document
+      const encryptedDocument = this.encryption.encrypt(document, userPublicKey);
+
+      // Add the document to IPFS
+      const result = await this.ipfs.add(encryptedDocument);
+      return result.path;
+    } catch (error) {
+      console.error('Error uploading document to IPFS:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Retrieve and decrypt a document from IPFS
+   * @param {string} ipfsHash - The IPFS hash of the document
+   * @param {string} privateKey - The private key to decrypt the document
+   * @returns {Promise<Buffer>} - The decrypted document
+   */
+  async retrieveDocument(ipfsHash, privateKey) {
+    try {
+      const chunks = [];
+      
+      // Get the document from IPFS
+      for await (const chunk of this.ipfs.cat(ipfsHash)) {
+        chunks.push(chunk);
+      }
+      
+      // Combine chunks and decrypt
+      const encryptedDocument = Buffer.concat(chunks);
+      return this.encryption.decrypt(encryptedDocument, privateKey);
+    } catch (error) {
+      console.error('Error retrieving document from IPFS:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Validate a document hash against the stored IPFS document
+   * @param {string} ipfsHash - The IPFS hash of the document
+   * @param {Buffer} document - The document to validate
+   * @param {string} privateKey - The private key to decrypt the document
+   * @returns {Promise<boolean>} - True if the document matches the stored one
+   */
+  async validateDocument(ipfsHash, document, privateKey) {
+    try {
+      const storedDocument = await this.retrieveDocument(ipfsHash, privateKey);
+      const storedHash = crypto.createHash('sha256').update(storedDocument).digest('hex');
+      const documentHash = crypto.createHash('sha256').update(document).digest('hex');
+      
+      return storedHash === documentHash;
+    } catch (error) {
+      console.error('Error validating document:', error);
+      return false;
+    }
+  }
+}
+
+/**
+ * Encryption Service for secure document storage
+ */
+class EncryptionService {
+  /**
+   * Encrypt data with a public key
+   * @param {Buffer} data - Data to encrypt
+   * @param {string} publicKey - Public key
+   * @returns {Buffer} - Encrypted data
+   */
+  encrypt(data, publicKey) {
+    // Implementation would use asymmetric encryption
+    // This is a simplified version for demonstration
+    const encryptedData = crypto.publicEncrypt(
+      {
+        key: publicKey,
+        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+        oaepHash: 'sha256'
+      },
+      Buffer.from(data)
+    );
+    
+    return encryptedData;
+  }
+
+  /**
+   * Decrypt data with a private key
+   * @param {Buffer} encryptedData - Data to decrypt
+   * @param {string} privateKey - Private key
+   * @returns {Buffer} - Decrypted data
+   */
+  decrypt(encryptedData, privateKey) {
+    // Implementation would use asymmetric decryption
+    const decryptedData = crypto.privateDecrypt(
+      {
+        key: privateKey,
+        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+        oaepHash: 'sha256'
+      },
+      encryptedData
+    );
+    
+    return decryptedData;
+  }
+}
+
+module.exports = IPFSService;
