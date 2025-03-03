@@ -1,0 +1,160 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+/**
+ * @title IdentityManagement
+ * @dev A decentralized identity verification system for financial transactions
+ */
+contract IdentityManagement {
+    // Identity status enum
+    enum IdentityStatus { NotRegistered, Pending, Verified, Rejected }
+    
+    // Identity data structure
+    struct Identity {
+        address owner;
+        string ipfsHash;       // Hash of the identity documents stored on IPFS
+        uint256 timestamp;     // Time when the identity was registered
+        IdentityStatus status;
+        address[] verifiers;   // List of addresses that verified this identity
+    }
+    
+    // Mapping from address to identity data
+    mapping(address => Identity) public identities;
+    
+    // List of authorized verifiers
+    mapping(address => bool) public verifiers;
+    
+    // Owner of the contract
+    address public owner;
+    
+    // Events
+    event IdentityRegistered(address indexed user, string ipfsHash, uint256 timestamp);
+    event IdentityVerified(address indexed user, address indexed verifier, uint256 timestamp);
+    event IdentityRejected(address indexed user, address indexed verifier, uint256 timestamp);
+    event VerifierAdded(address indexed verifier);
+    event VerifierRemoved(address indexed verifier);
+    
+    // Modifiers
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only the owner can call this function");
+        _;
+    }
+    
+    modifier onlyVerifier() {
+        require(verifiers[msg.sender], "Only authorized verifiers can call this function");
+        _;
+    }
+    
+    /**
+     * @dev Constructor sets the owner of the contract
+     */
+    constructor() {
+        owner = msg.sender;
+        verifiers[msg.sender] = true; // Owner is also a verifier by default
+        emit VerifierAdded(msg.sender);
+    }
+    
+    /**
+     * @dev Add a new verifier
+     * @param _verifier Address of the verifier to add
+     */
+    function addVerifier(address _verifier) external onlyOwner {
+        require(_verifier != address(0), "Invalid address");
+        require(!verifiers[_verifier], "Verifier already exists");
+        
+        verifiers[_verifier] = true;
+        emit VerifierAdded(_verifier);
+    }
+    
+    /**
+     * @dev Remove a verifier
+     * @param _verifier Address of the verifier to remove
+     */
+    function removeVerifier(address _verifier) external onlyOwner {
+        require(verifiers[_verifier], "Not a verifier");
+        require(_verifier != owner, "Cannot remove owner as verifier");
+        
+        verifiers[_verifier] = false;
+        emit VerifierRemoved(_verifier);
+    }
+    
+    /**
+     * @dev Register a new identity
+     * @param _ipfsHash IPFS hash of the identity documents
+     */
+    function registerIdentity(string calldata _ipfsHash) external {
+        require(identities[msg.sender].status == IdentityStatus.NotRegistered, "Identity already registered");
+        require(bytes(_ipfsHash).length > 0, "IPFS hash cannot be empty");
+        
+        identities[msg.sender] = Identity({
+            owner: msg.sender,
+            ipfsHash: _ipfsHash,
+            timestamp: block.timestamp,
+            status: IdentityStatus.Pending,
+            verifiers: new address[](0)
+        });
+        
+        emit IdentityRegistered(msg.sender, _ipfsHash, block.timestamp);
+    }
+    
+    /**
+     * @dev Verify an identity
+     * @param _user Address of the user to verify
+     */
+    function verifyIdentity(address _user) external onlyVerifier {
+        require(identities[_user].status == IdentityStatus.Pending, "Identity not pending verification");
+        
+        identities[_user].status = IdentityStatus.Verified;
+        identities[_user].verifiers.push(msg.sender);
+        
+        emit IdentityVerified(_user, msg.sender, block.timestamp);
+    }
+    
+    /**
+     * @dev Reject an identity
+     * @param _user Address of the user to reject
+     */
+    function rejectIdentity(address _user) external onlyVerifier {
+        require(identities[_user].status == IdentityStatus.Pending, "Identity not pending verification");
+        
+        identities[_user].status = IdentityStatus.Rejected;
+        
+        emit IdentityRejected(_user, msg.sender, block.timestamp);
+    }
+    
+    /**
+     * @dev Check if an identity is verified
+     * @param _user Address of the user to check
+     * @return bool True if the identity is verified
+     */
+    function isVerified(address _user) external view returns (bool) {
+        return identities[_user].status == IdentityStatus.Verified;
+    }
+    
+    /**
+     * @dev Get the verification status of an identity
+     * @param _user Address of the user to check
+     * @return status The status of the identity
+     */
+    function getIdentityStatus(address _user) external view returns (IdentityStatus) {
+        return identities[_user].status;
+    }
+    
+    /**
+     * @dev Get the IPFS hash of an identity
+     * @param _user Address of the user to check
+     * @return string The IPFS hash of the identity documents
+     */
+    function getIdentityHash(address _user) external view returns (string memory) {
+        return identities[_user].ipfsHash;
+    }
+    
+    /**
+     * @dev Get the verifiers of an identity
+     * @param _user Address of the user to check
+     * @return address[] The list of verifiers
+     */
+    function getIdentityVerifiers(address _user) external view returns (address[] memory) {
+        return identities[_user].verifiers;
+    }
+}
